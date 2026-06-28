@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetGuard | IDS Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0a0a0a; font-family: 'Courier New', Courier, monospace; }
+        .card { background-color: #1a1a1a; border: 1px solid #333; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .table-dark { background-color: transparent; }
+        thead { border-bottom: 2px solid #444; }
+        .pulse { animation: pulse-animation 2s infinite; }
+        @keyframes pulse-animation { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        .table-container { max-height: 400px; overflow-y: auto; }
+        .table-container::-webkit-scrollbar { width: 8px; }
+        .table-container::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        .search-input { background-color: #111 !important; color: white !important; border-color: #444 !important; }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-secondary pb-3">
+        <h2>🛡️ <span class="text-primary">NetGuard</span> Security Operations Center</h2>
+        <div class="text-end">
+            <span class="badge bg-success pulse fs-6 mb-1">● System Online</span>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-5 mb-4">
+            
+            <div class="card border-secondary mb-4">
+                <div class="card-header bg-dark text-white fw-bold">
+                    📊 THREAT DISTRIBUTION
+                </div>
+                <div class="card-body" style="height: 250px; display: flex; justify-content: center;">
+                    <canvas id="threatChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card border-danger h-50">
+                <div class="card-header bg-danger text-white fw-bold d-flex justify-content-between">
+                    <span>🚨 ACTIVE THREAT ALERTS</span>
+                </div>
+                <div class="card-body p-0 table-container">
+                    <table class="table table-dark table-hover mb-0" style="font-size: 0.9rem;">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Target/Attacker IP</th>
+                                <th>Classification</th>
+                                <th>Severity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alerts-body">
+                            <tr><td colspan="4" class="text-center text-muted py-4">Awaiting data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7 mb-4">
+            <div class="card border-primary h-100">
+                <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between align-items-center">
+                    <span>🌐 RAW NETWORK TRAFFIC</span>
+                    <input type="text" id="traffic-search" class="form-control form-control-sm search-input w-50" placeholder="🔍 Search IP, Port, or Protocol...">
+                </div>
+                <div class="card-body p-0 table-container" style="max-height: 700px;">
+                    <table class="table table-dark table-hover mb-0" style="font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Source IP</th>
+                                <th>Dest IP</th>
+                                <th>Port</th>
+                                <th>Protocol</th>
+                                <th>Size (KB)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="traffic-body">
+                            <tr><td colspan="6" class="text-center text-muted py-4">Awaiting data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Initialize Chart.js
+    let ctx = document.getElementById('threatChart').getContext('2d');
+    let threatChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: [],
+            datasets: [{
+                data: [],
+                backgroundColor: ['#ffc107', '#fd7e14', '#dc3545', '#0d6efd', '#6f42c1'],
+                borderWidth: 1,
+                borderColor: '#1a1a1a'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { color: '#fff' } }
+            }
+        }
+    });
+
+    // Helper Function for Severity Colors
+    function getSeverityBadge(threatType) {
+        if (threatType.includes("Scan")) return '<span class="badge bg-warning text-dark">Low</span>';
+        if (threatType.includes("DNS")) return '<span class="badge" style="background-color: #fd7e14; color: black;">Medium</span>';
+        return '<span class="badge bg-danger">Critical</span>';
+    }
+
+    function fetchLiveData() {
+        fetch('/api/data')
+            .then(response => response.json())
+            .then(data => {
+                if(data.status === "success") {
+                    
+                    // Update Chart Data
+                    let labels = [];
+                    let counts = [];
+                    data.distribution.forEach(item => {
+                        labels.push(item.threat_type);
+                        counts.push(item.count);
+                    });
+                    threatChart.data.labels = labels;
+                    threatChart.data.datasets[0].data = counts;
+                    threatChart.update();
+
+                    // Render Alerts Table (With Severity)
+                    let alertsHtml = '';
+                    data.alerts.forEach(alert => {
+                        let severityBadge = getSeverityBadge(alert.threat_type);
+                        alertsHtml += `
+                            <tr>
+                                <td class="text-secondary">${alert.timestamp}</td>
+                                <td><strong>${alert.src_ip}</strong></td>
+                                <td class="text-danger">${alert.threat_type}</td>
+                                <td>${severityBadge}</td>
+                            </tr>
+                        `;
+                    });
+                    document.getElementById('alerts-body').innerHTML = alertsHtml || '<tr><td colspan="4" class="text-center text-success py-4">✔ No active threats. System secure.</td></tr>';
+
+                    // Render Traffic Table (With Live Search Filter applied)
+                    let trafficHtml = '';
+                    let currentSearch = document.getElementById('traffic-search').value.toLowerCase();
+                    
+                    data.traffic.forEach(log => {
+                        let rowText = `${log.src_ip} ${log.dst_ip} ${log.dst_port} ${log.protocol}`.toLowerCase();
+                        let displayStyle = rowText.includes(currentSearch) ? '' : 'style="display:none;"';
+                        
+                        trafficHtml += `
+                            <tr ${displayStyle}>
+                                <td class="text-secondary">${log.timestamp}</td>
+                                <td class="text-info">${log.src_ip}</td>
+                                <td class="text-warning">${log.dst_ip}</td>
+                                <td>${log.dst_port}</td>
+                                <td><span class="badge bg-secondary">${log.protocol}</span></td>
+                                <td>${log.packet_size}</td>
+                            </tr>
+                        `;
+                    });
+                    document.getElementById('traffic-body').innerHTML = trafficHtml || '<tr><td colspan="6" class="text-center text-muted py-4">No traffic detected.</td></tr>';
+                }
+            })
+            .catch(error => console.error("Error fetching NetGuard data:", error));
+    }
+
+    // Live search event listener to filter immediately as user types
+    document.getElementById('traffic-search').addEventListener('input', function() {
+        let filter = this.value.toLowerCase();
+        let rows = document.querySelectorAll('#traffic-body tr');
+        rows.forEach(row => {
+            let text = row.innerText.toLowerCase();
+            row.style.display = text.includes(filter) ? '' : 'none';
+        });
+    });
+
+    fetchLiveData();
+    setInterval(fetchLiveData, 2000);
+</script>
+
+</body>
+</html>

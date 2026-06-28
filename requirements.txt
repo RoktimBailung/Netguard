@@ -1,0 +1,10 @@
+# NetGuard IDS - Python Dependencies
+
+# Core Sniffing Engine
+scapy>=2.5.0
+
+# Database Persistence Layer
+mysql-connector-python>=8.0.30
+
+# Web Dashboard (Presentation Layer)
+Flask>=2.3.0
